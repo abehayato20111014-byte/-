@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>オンラインしりとり（投票制）</title>
+  <title>オンラインしりとり（確定版）</title>
   <style>
     :root {
       --primary: #4CAF50;
@@ -30,11 +30,11 @@
       display: flex;
       flex-direction: column;
     }
-    h1 { text-align: center; font-size: 1.5rem; }
+    h1 { text-align: center; font-size: 1.5rem; margin-top: 10px; }
     .screen { display: none; flex: 1; flex-direction: column; }
     .screen.active { display: flex; }
     input {
-      padding: 10px;
+      padding: 12px;
       margin-bottom: 10px;
       border: 1px solid #ccc;
       border-radius: 5px;
@@ -43,7 +43,7 @@
       box-sizing: border-box;
     }
     button {
-      padding: 10px;
+      padding: 12px;
       background-color: var(--primary);
       color: white;
       border: none;
@@ -53,7 +53,7 @@
       width: 100%;
       margin-bottom: 10px;
     }
-    button:disabled { background-color: #aaa; }
+    button:disabled { background-color: #aaa; cursor: not-allowed; }
     .header-info {
       background: white;
       padding: 15px;
@@ -82,7 +82,7 @@
     .message.pending { background-color: #fff9c4; }
     .message.approved { background-color: #e8f5e9; }
     .vote-btn {
-      width: auto; margin: 0; padding: 5px 15px; font-size: 14px;
+      width: auto; margin: 0; padding: 6px 12px; font-size: 14px;
     }
   </style>
 </head>
@@ -101,7 +101,7 @@
       <h2>ロビー</h2>
       <p>こんにちは、<span id="display-name"></span>さん</p>
       <button id="create-room-btn">新しい部屋を作る</button>
-      <hr style="width:100%; margin: 20px 0;">
+      <hr style="width:100%; margin: 20px 0; border: 0; border-top: 1px solid #ccc;">
       <input type="text" id="room-id-input" placeholder="入室する部屋のIDを入力">
       <button id="join-room-btn">部屋に入る</button>
     </div>
@@ -116,19 +116,19 @@
         </div>
 
       <div style="display: flex; gap: 10px;">
-        <input type="text" id="word-input" placeholder="単語を入力（ひらがな・カタカナ等）">
+        <input type="text" id="word-input" placeholder="単語を入力">
         <button id="send-word-btn" style="width: 80px;">送信</button>
       </div>
     </div>
   </div>
 
   <script type="module">
-    // Firebase SDKのインポート
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+    // Firebase SDKのインポート（安定版 10.13.0 に固定）
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
     import { 
       getFirestore, doc, setDoc, updateDoc, onSnapshot, 
       collection, addDoc, query, orderBy, serverTimestamp, arrayUnion, getDoc
-    } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
     // Firebase設定 (提供された設定)
     const firebaseConfig = {
@@ -145,7 +145,7 @@
     const db = getFirestore(app);
 
     // グローバル状態
-    let myId = "user_" + Math.random().toString(36).substr(2, 9); // 簡易的な固有ID生成
+    let myId = "user_" + Math.random().toString(36).substr(2, 9);
     let myName = "";
     let currentRoomId = "";
     let roomData = null;
@@ -174,36 +174,48 @@
       }
     });
 
-    // 2. 部屋を作る
+    // 2. 部屋を作る（エラーハンドリング強化）
     document.getElementById('create-room-btn').addEventListener('click', async () => {
-      const roomId = "room_" + Math.floor(1000 + Math.random() * 9000); // 4桁のランダムID
-      const roomRef = doc(db, "rooms", roomId);
-      
-      await setDoc(roomRef, {
-        players: [{ id: myId, name: myName }],
-        turnIndex: 0,
-        status: "waiting", // 3人揃うまでwaiting
-        createdAt: serverTimestamp()
-      });
+      try {
+        const roomId = "room_" + Math.floor(1000 + Math.random() * 9000); // 4桁のランダムID
+        const roomRef = doc(db, "rooms", roomId);
+        
+        // データベースに部屋データを作成
+        await setDoc(roomRef, {
+          players: [{ id: myId, name: myName }],
+          turnIndex: 0,
+          status: "waiting",
+          createdAt: serverTimestamp()
+        });
 
-      enterRoom(roomId);
+        // 成功したら部屋に入る
+        enterRoom(roomId);
+      } catch (error) {
+        console.error("部屋作成エラー:", error);
+        alert("【エラー】部屋の作成に失敗しました。\n\n詳細: " + error.message + "\n\n※Firebaseの『Firestore Database』が作成されているか、また『ルール』が公開(allow read, write: if true;)されているか確認してください。");
+      }
     });
 
-    // 3. 部屋に入る
+    // 3. 部屋に入る（エラーハンドリング強化）
     document.getElementById('join-room-btn').addEventListener('click', async () => {
-      const roomId = document.getElementById('room-id-input').value.trim();
-      if (!roomId) return alert("部屋IDを入力してください");
+      try {
+        const roomId = document.getElementById('room-id-input').value.trim();
+        if (!roomId) return alert("部屋IDを入力してください");
 
-      const roomRef = doc(db, "rooms", roomId);
-      const roomSnap = await getDoc(roomRef);
+        const roomRef = doc(db, "rooms", roomId);
+        const roomSnap = await getDoc(roomRef);
 
-      if (roomSnap.exists()) {
-        await updateDoc(roomRef, {
-          players: arrayUnion({ id: myId, name: myName })
-        });
-        enterRoom(roomId);
-      } else {
-        alert("その部屋は見つかりません。");
+        if (roomSnap.exists()) {
+          await updateDoc(roomRef, {
+            players: arrayUnion({ id: myId, name: myName })
+          });
+          enterRoom(roomId);
+        } else {
+          alert("その部屋は見つかりません。部屋IDが正しいか確認してください。");
+        }
+      } catch (error) {
+        console.error("入室エラー:", error);
+        alert("【エラー】部屋への入室に失敗しました。\n詳細: " + error.message);
       }
     });
 
@@ -215,28 +227,32 @@
 
       const roomRef = doc(db, "rooms", roomId);
       
-      // 部屋の情報の監視 (プレイヤー人数、ターンの管理)
+      // 部屋情報のリアルタイム監視
       onSnapshot(roomRef, (docSnap) => {
         if (docSnap.exists()) {
           roomData = docSnap.data();
           updateGameHeader();
         }
+      }, (error) => {
+        console.error("部屋監視エラー:", error);
+        alert("部屋のデータ同期に失敗しました: " + error.message);
       });
 
-      // メッセージ（しりとりの単語）の監視
+      // メッセージのリアルタイム監視
       const messagesRef = collection(db, "rooms", roomId, "messages");
       const q = query(messagesRef, orderBy("createdAt", "asc"));
       
       onSnapshot(q, (snapshot) => {
         const chatArea = document.getElementById('chat-area');
-        chatArea.innerHTML = ""; // 一旦クリア
+        chatArea.innerHTML = "";
         
         snapshot.forEach((docSnap) => {
           renderMessage(docSnap.id, docSnap.data());
         });
         
-        // 自動スクロール
-        chatArea.scrollTop = chatArea.scrollHeight;
+        chatArea.scrollTop = chatArea.scrollHeight; // 自動スクロール
+      }, (error) => {
+        console.error("チャット監視エラー:", error);
       });
     }
 
@@ -255,7 +271,6 @@
         
         turnDisplay.textContent = `現在のターン: ${currentTurnPlayer.name} さん ${isMyTurn ? "(あなた)" : ""}`;
         
-        // 自分のターンで、かつ承認待ちの言葉がない場合のみ送信可能
         document.getElementById('send-word-btn').disabled = !isMyTurn;
         document.getElementById('word-input').disabled = !isMyTurn;
       }
@@ -263,25 +278,29 @@
 
     // メッセージの送信
     document.getElementById('send-word-btn').addEventListener('click', async () => {
-      const wordInput = document.getElementById('word-input');
-      const word = wordInput.value.trim();
-      
-      if (!word) return;
+      try {
+        const wordInput = document.getElementById('word-input');
+        const word = wordInput.value.trim();
+        
+        if (!word) return;
 
-      const messagesRef = collection(db, "rooms", currentRoomId, "messages");
-      await addDoc(messagesRef, {
-        word: word,
-        senderId: myId,
-        senderName: myName,
-        votes: [], // 賛成した人のID配列
-        status: "pending", // pending(承認待ち) または approved(承認済み)
-        createdAt: serverTimestamp()
-      });
+        const messagesRef = collection(db, "rooms", currentRoomId, "messages");
+        await addDoc(messagesRef, {
+          word: word,
+          senderId: myId,
+          senderName: myName,
+          votes: [],
+          status: "pending",
+          createdAt: serverTimestamp()
+        });
 
-      wordInput.value = "";
+        wordInput.value = "";
+      } catch (error) {
+        alert("送信に失敗しました: " + error.message);
+      }
     });
 
-    // メッセージの描画と投票ボタンの処理
+    // メッセージの描画
     function renderMessage(msgId, msgData) {
       const chatArea = document.getElementById('chat-area');
       const div = document.createElement('div');
@@ -289,22 +308,20 @@
 
       let html = `<div><strong>${msgData.senderName}</strong>: ${msgData.word}</div>`;
 
-      // 承認待ちで、自分が送信者ではなく、まだ投票していない場合に投票ボタンを表示
       if (msgData.status === "pending") {
         const hasVoted = msgData.votes.includes(myId);
         const isSender = msgData.senderId === myId;
         const totalPlayers = roomData.players.length;
         const currentVotes = msgData.votes.length;
-        
-        // 過半数の計算 (送信者も全体数に含むが投票しない)
         const requiredVotes = Math.floor(totalPlayers / 2) + 1;
 
-        html += `<div style="font-size: 12px; color: #666;">賛成: ${currentVotes}/${requiredVotes}</div>`;
+        html += `<div style="font-size: 12px; color: #666; margin-left: 10px;">賛成: ${currentVotes}/${requiredVotes}</div>`;
 
         if (!isSender && !hasVoted) {
-          html += `<button class="vote-btn" onclick="voteForWord('${msgId}')">賛成する</button>`;
+          // data-id属性にメッセージIDを持たせる
+          html += `<button class="vote-btn" data-id="${msgId}">賛成</button>`;
         } else if (isSender) {
-          html += `<div style="font-size: 12px; color: #f57c00;">承認待ち...</div>`;
+          html += `<div style="font-size: 12px; color: #f57c00; margin-left: 10px;">承認待ち...</div>`;
         }
       }
 
@@ -312,34 +329,46 @@
       chatArea.appendChild(div);
     }
 
-    // 投票機能（グローバルから呼べるようにwindowに割り当て）
-    window.voteForWord = async (msgId) => {
-      if (!roomData) return;
+    // 投票ボタンのクリックを安全に検知（イベントデリゲーション）
+    document.getElementById('chat-area').addEventListener('click', async (e) => {
+      if (e.target && e.target.classList.contains('vote-btn')) {
+        const msgId = e.target.getAttribute('data-id');
+        if (!msgId || !roomData) return;
 
-      const msgRef = doc(db, "rooms", currentRoomId, "messages", msgId);
-      const msgSnap = await getDoc(msgRef);
-      
-      if (!msgSnap.exists()) return;
-      const msgData = msgSnap.data();
+        try {
+          e.target.disabled = true; // 連続クリック防止
+          const msgRef = doc(db, "rooms", currentRoomId, "messages", msgId);
+          const msgSnap = await getDoc(msgRef);
+          
+          if (!msgSnap.exists()) return;
+          const msgData = msgSnap.data();
 
-      const newVotes = [...msgData.votes, myId];
-      const totalPlayers = roomData.players.length;
-      const requiredVotes = Math.floor(totalPlayers / 2) + 1; // 過半数
+          // すでに投票済みならスキップ
+          if (msgData.votes.includes(myId)) return;
 
-      // 投票を追加
-      await updateDoc(msgRef, {
-        votes: arrayUnion(myId)
-      });
+          const newVotes = [...msgData.votes, myId];
+          const totalPlayers = roomData.players.length;
+          const requiredVotes = Math.floor(totalPlayers / 2) + 1;
 
-      // もし過半数に達したら、ステータスを承認済みにし、ターンを次に回す
-      if (newVotes.length >= requiredVotes) {
-        await updateDoc(msgRef, { status: "approved" });
-        
-        const nextTurnIndex = (roomData.turnIndex + 1) % totalPlayers;
-        const roomRef = doc(db, "rooms", currentRoomId);
-        await updateDoc(roomRef, { turnIndex: nextTurnIndex });
+          // 投票をデータベースに反映
+          await updateDoc(msgRef, {
+            votes: arrayUnion(myId)
+          });
+
+          // 過半数に達したら承認して次のターンへ
+          if (newVotes.length >= requiredVotes) {
+            await updateDoc(msgRef, { status: "approved" });
+            
+            const nextTurnIndex = (roomData.turnIndex + 1) % totalPlayers;
+            const roomRef = doc(db, "rooms", currentRoomId);
+            await updateDoc(roomRef, { turnIndex: nextTurnIndex });
+          }
+        } catch (error) {
+          alert("投票に失敗しました: " + error.message);
+          e.target.disabled = false;
+        }
       }
-    };
+    });
   </script>
 </body>
 </html>
